@@ -10,21 +10,28 @@ description: >-
   安装技能, 导入技能, 写技能, 技能规范, or asks why a skill is not triggering.
   Use it even when they only vaguely mention wanting some existing skill for a
   task, rather than explicitly asking to search GitHub.
+  Also hunts for ANY valuable open-source project to reuse or fork: evaluate
+  whether it is still maintained, how active the community is (stars/forks),
+  how hard it is to deploy, which features are reusable, and whether its tech
+  stack fits the user's need. Use it whenever the user asks 找开源项目, 搜索项目,
+  这个项目能不能直接用, 有没有现成的轮子, reuse / fork / build-from-scratch
+  decision, or wants a simplest MVP plan for an idea.
 license: MIT
 compatibility: Requires Python 3.8+ and internet access. GITHUB_TOKEN env var optional but recommended.
 metadata:
   author: WorkBuddy
-  version: "1.0"
+  version: "1.1"
 ---
 
 # GitHub Skill Hunter
 
 在 GitHub 上找到可用的 Agent Skill，审计它，装下来；或者按官方规范写一个新的。
 
-两个脚本，零第三方依赖：
+三个脚本，零第三方依赖：
 
-- `scripts/search_skills.py` — 搜索并按可用性评分
+- `scripts/search_skills.py` — 搜索 Agent Skill 并按可用性评分
 - `scripts/fetch_skill.py` — 列举、校验、安全审计、安装
+- `scripts/scout_projects.py` — 侦察任何有价值的开源项目，做五维评估（维护/活跃/部署/复用/技术栈）
 
 规范速查见 `references/skill-spec.md`（frontmatter 约束、渐进式披露、触发优化、安全红线）。
 
@@ -38,6 +45,7 @@ metadata:
 | 给了具体仓库 | 直接跳「审计与安装」 |
 | 想写/改 skill | 读 `references/skill-spec.md`，走「编写」流程 |
 | skill 不触发 | 走「诊断触发问题」 |
+| 想找能复用的开源项目 / 判断该不该自研 | 走「侦察可复用的开源项目」 |
 
 ---
 
@@ -62,6 +70,49 @@ python scripts/search_skills.py --topics-only --limit 30   # 泛览生态
 
 **匿名调用只有 60 次/小时**。设置 `GITHUB_TOKEN` 提到 5000 次/小时并解锁 SKILL.md 内容搜索。
 遇到 403 时脚本会明确告知重置时间，不会静默失败。
+
+---
+
+## 侦察可复用的开源项目
+
+不止能找 skill——任何「想偷懒不重复造轮子」的需求都可以用 `scout_projects.py` 侦察一遍。
+它把 GitHub 搜索结果跑一遍**五维评估**，直接回答用户最关心的五个问题：
+
+| 维度 | 字段 | 怎么算 |
+|---|---|---|
+| 1. 是否还在维护 | `maintenance` | 按最后 push 时间分档（≤30天=100；归档=0） |
+| 2. Star / 社区活跃度 | `popularity` + `activity` | star 取对数压缩，避免大仓库碾压；活跃度看近期提交 |
+| 3. 部署是否麻烦 | `deploy_ease` | 按语言生态给基准分（go/rust 高，java/c++ 低）；`--deep` 检测到 Dockerfile 再加分 |
+| 4. 哪些功能可复用 | `reuse` + README `Features` 提取 | 按 license 友好度给分（MIT/Apache 高，无 license=15 风险分） |
+| 5. 技术栈是否合适 | `stack_fit` | 用 `--stack` 指定期望栈，命中语言/topic/描述给分 |
+
+每个仓库最后落一个 verdict 标签：
+
+- ✅ **推荐直接复用 / 二次开发** — 维护活跃 + license 友好 + 技术栈吻合
+- 🟡 **可基于现有项目修改** — 维护尚可 + license 可用，但需要改
+- 🔴 **建议参考后自研** — 维护停滞或技术栈不符，只值得当参考
+- ⚠ **已归档 / license 受限** — 归档项目或 GPL/AGPL/无 license，复用需谨慎
+
+```bash
+# 基础侦察：你的项目想法 + 期望技术栈
+python scripts/scout_projects.py "personal portfolio website" --stack html,javascript --min-stars 200
+
+# 深探：额外检查 Dockerfile、抓取 README 的 Features 列表
+python scripts/scout_projects.py "tactical shooter game" --stack html,javascript --limit 8 --deep
+
+# 机器可读：导出 JSON 留档
+python scripts/scout_projects.py "ai agent framework" --stack python --json scout.json
+```
+
+输出末尾的「综合建议」会直接给出 **直接用 / 基于修改 / 自建** 的项目计数与首选推荐，
+正好对应「应该直接用、基于现有项目修改，还是自己开发」的决策问题。
+
+**给用户的 MVP 建议写法**（用脚本结论驱动，不要凭空编）：
+
+1. 看 verdict 里第一个 ✅/🟡 仓库——它就是「能直接复用」的现成轮子，先 `git clone` 跑起来当基线。
+2. 若 ✅/🟡 都没有，看 🟡 里最接近的一个，做「最小改动 fork」：只改入口/配置/你自己的内容。
+3. 只有 🔴 时，说明没有合适的开源基础，按「最简单 MVP」自建：先实现 1 个核心闭环（能跑、能看、能交互），再迭代。
+4. MVP 永远从「用户能感知的最小可用」起步，不要在第一版就补齐全功能。
 
 ---
 
